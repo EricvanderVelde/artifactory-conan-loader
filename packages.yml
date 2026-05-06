@@ -1,0 +1,72 @@
+# packages.yml — packages to provision into Artifactory
+#
+# Usage:
+#   python3 scripts/provision.py --packages-file packages.yml
+#   python3 scripts/provision.py --packages-file packages.yml --auto-deps
+#
+# ref format:  name/version  or  name/version:recipe-folder
+#
+# options:
+#   Only list options you want to override.  Everything not mentioned here
+#   uses the recipe's own default_options.  Setting an option to false also
+#   prevents the dependency it guards from being pulled in by --auto-deps.
+#
+# opentelemetry-cpp option reference (defaults shown):
+#   shared: false           — build as static library
+#   with_stl: false         — use std:: instead of Abseil types (off: avoids stack-overflow in tests)
+#   with_gsl: false         — GSL span/string_view types   → adds ms-gsl/4.0.0
+#   with_otlp_grpc: false   — OTLP gRPC exporter           → adds grpc + protobuf
+#   with_otlp_http: true    — OTLP HTTP exporter           → adds protobuf + nlohmann_json + libcurl
+#   with_otlp_http_compression: false  — gzip on HTTP      → adds zlib
+#   with_otlp_file: false   — OTLP file exporter           → adds protobuf + nlohmann_json
+#   with_zipkin: true       — Zipkin exporter              → adds nlohmann_json + libcurl
+#   with_prometheus: false  — Prometheus exporter          → adds prometheus-cpp
+#   with_elasticsearch: false  — Elasticsearch exporter   → adds nlohmann_json + libcurl
+#   with_async_export_preview: false
+#   with_metrics_exemplar_preview: false
+
+packages:
+
+  # Build tool — needed by opentelemetry-cpp >= 1.24.0 and abseil >= 20240722.0
+  - ref: cmake/3.31.12:binary
+
+  # Core C++ libraries
+  - ref: zlib/1.3.2
+  - ref: abseil/20260107.1
+  - ref: protobuf/6.33.5
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # opentelemetry-cpp — choose the feature set that suits your deployment.
+  # Uncomment the scenario you want (only one should be active at a time).
+  # ──────────────────────────────────────────────────────────────────────────
+
+  # Scenario A — OTLP HTTP only (minimal footprint, no gRPC)
+  # Deps added automatically: protobuf, nlohmann_json, libcurl
+  - ref: opentelemetry-cpp/1.26.0
+    options:
+      with_otlp_http: true
+      with_otlp_grpc: false
+      with_zipkin: false
+      with_prometheus: false
+      with_gsl: false
+
+  # Scenario B — OTLP HTTP + gRPC (uncomment and remove Scenario A above)
+  # Deps added automatically: protobuf, grpc, nlohmann_json, libcurl
+  # - ref: opentelemetry-cpp/1.17.0
+  #   options:
+  #     with_otlp_http: true
+  #     with_otlp_grpc: true
+  #     with_zipkin: false
+  #     with_prometheus: false
+  #     with_gsl: false
+
+  # Scenario C — Full observability stack (uncomment and remove Scenario A above)
+  # Deps added: grpc, protobuf, ms-gsl, prometheus-cpp, nlohmann_json, libcurl, zlib
+  # - ref: opentelemetry-cpp/1.17.0
+  #   options:
+  #     with_otlp_http: true
+  #     with_otlp_http_compression: true   # adds zlib
+  #     with_otlp_grpc: true               # adds grpc
+  #     with_zipkin: true
+  #     with_prometheus: true              # adds prometheus-cpp
+  #     with_gsl: true                     # adds ms-gsl

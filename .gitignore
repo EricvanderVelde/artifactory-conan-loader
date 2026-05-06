@@ -1,0 +1,32 @@
+# Conan local cache
+.conan2/
+
+# Downloaded source tarballs
+.source-cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Build artefacts
+test_project/build/
+
+# Downloaded recipes
+recipes/
+
+# Claude session files
+.claude/

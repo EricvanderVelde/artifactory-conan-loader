@@ -1,0 +1,9 @@
+[requires]
+protobuf/6.33.5
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+protobuf*:shared=False
