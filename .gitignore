@@ -2,7 +2,7 @@
 .conan2/
 
 # Downloaded source tarballs
-.source-cache/
+bundle/
 
 # Python
 __pycache__/
