@@ -10,11 +10,11 @@ Disconnected machine          Connected machine        Disconnected machine
  no internet)
 ──────────────────────        ─────────────────        ────────────────────
 1. fetch.py                                            3. deploy.py
-   • reads local CCI             2. download_sources.sh    • uploads sources
+   • reads local CCI             2. download_sources.py    • uploads sources
    • resolves dep tree   ──────►    • curl downloads   ──► • patches recipes
    • copies recipes               • git clone+archive      • conan create
    • generates                                             • conan upload
-     download_sources.sh                                   • (run tests)
+     download_sources.{json,py}                            • (run tests)
 ```
 
 ---
@@ -25,7 +25,7 @@ Disconnected machine          Connected machine        Disconnected machine
 |---|---|
 | Python 3.10+ with `pyyaml` | disconnected machine |
 | `git` | disconnected machine (to read local CCI) |
-| `curl`, `git` | connected machine (to run download script) |
+| `python3`, `curl`, `git` | connected machine (to run download script) |
 | Conan 2.1+ | disconnected machine with Artifactory |
 | CMake 3.16+, GCC 9+ | disconnected machine (to build packages) |
 | Docker + Docker Compose | disconnected machine (to run Artifactory) |
@@ -99,7 +99,8 @@ What the script produces in `bundle/`:
 |---|---|
 | `recipes/` | Recipe files copied from CCI (original upstream URLs — no Artifactory baked in) |
 | `manifest.yml` | Resolved build order: package names, versions, folders, options |
-| `download_sources.sh` | **Generated shell script** — run this on the connected machine |
+| `download_sources.json` | **Generated data** — every URL/checksum (or git ref) to fetch |
+| `download_sources.py` | Generic downloader script (copied verbatim, not generated) — reads the JSON above |
 
 ### Dependency resolution
 
@@ -118,21 +119,21 @@ python3 scripts/fetch.py --packages-file packages.yml \
 
 ## Step 2 — Download (connected machine)
 
-Transfer `bundle/download_sources.sh` to a machine with internet access and
-run it there:
+Transfer `bundle/download_sources.json` and `bundle/download_sources.py`
+(same directory) to a machine with internet access and run:
 
 ```bash
-bash bundle/download_sources.sh
+python3 bundle/download_sources.py
 ```
 
 The script downloads every source tarball and git-based source archive into
-`bundle/sources/` next to the script.  It verifies SHA-256 checksums and is
+`bundle/sources/` next to the JSON file.  It verifies SHA-256 checksums and is
 safe to re-run — already-downloaded files are skipped.
 
 You can pass an explicit destination directory:
 
 ```bash
-bash download_sources.sh /tmp/conan-sources
+python3 download_sources.py /tmp/conan-sources
 ```
 
 **Copy `bundle/` back to the disconnected machine** (including the newly
@@ -259,7 +260,7 @@ can happen with very new CCI releases.  Use `--pin name=older-version`.
 
 **`ERROR: Source not found in bundle`** during deploy  
 A source tarball is missing from `bundle/sources/`.  Re-run
-`download_sources.sh` on the connected machine and copy the files back.
+`download_sources.py` on the connected machine and copy the files back.
 
 **Conan exit code 6** (ConanInvalidConfiguration)  
 The package is not buildable on this platform (e.g. a Windows-only
