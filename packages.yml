@@ -31,9 +31,16 @@ packages:
   - ref: cmake/3.31.12:binary
 
   # Core C++ libraries
-  - ref: zlib/1.3.2
-  - ref: abseil/20260107.1
-  - ref: protobuf/6.33.5
+  - ref: gtest/1.17.0
+  - ref: spdlog/1.17.0
+    options:
+      use_std_fmt: true
+  - ref: boost/1.89.0
+    options:
+      bzip2: false
+  # - ref: zlib/1.3.2
+  # - ref: abseil/20260107.1
+  # - ref: protobuf/6.33.5
 
   # ──────────────────────────────────────────────────────────────────────────
   # opentelemetry-cpp — choose the feature set that suits your deployment.
@@ -42,13 +49,13 @@ packages:
 
   # Scenario A — OTLP HTTP only (minimal footprint, no gRPC)
   # Deps added automatically: protobuf, nlohmann_json, libcurl
-  - ref: opentelemetry-cpp/1.26.0
-    options:
-      with_otlp_http: true
-      with_otlp_grpc: false
-      with_zipkin: false
-      with_prometheus: false
-      with_gsl: false
+  # - ref: opentelemetry-cpp/1.26.0
+  #   options:
+  #     with_otlp_http: true
+  #     with_otlp_grpc: false
+  #     with_zipkin: false
+  #     with_prometheus: false
+  #     with_gsl: false
 
   # Scenario B — OTLP HTTP + gRPC (uncomment and remove Scenario A above)
   # Deps added automatically: protobuf, grpc, nlohmann_json, libcurl

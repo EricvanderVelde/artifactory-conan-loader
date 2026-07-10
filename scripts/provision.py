@@ -175,6 +175,54 @@ def _gather_cond(lines, if_lineno, cond):
     return cond
 
 
+_PROPERTY_REF_RE = re.compile(r'self\.(_\w+)\b(?!\s*\()')
+
+
+def _find_property_expr(lines, name):
+    """Return the (possibly multi-line) return-expression of a @property, or None."""
+    def_re = re.compile(r'^\s*def\s+' + re.escape(name) + r'\s*\(self\)\s*:\s*$')
+    for i, line in enumerate(lines):
+        if not def_re.match(line):
+            continue
+        j = i - 1
+        while j >= 0 and not lines[j].strip():
+            j -= 1
+        if j < 0 or not lines[j].strip().startswith('@property'):
+            continue
+        k = i + 1
+        while k < len(lines) and not lines[k].strip():
+            k += 1
+        if k >= len(lines) or not lines[k].strip().startswith('return '):
+            return None  # body has logic beyond a single return — too complex to inline
+        expr = lines[k].strip()[len('return '):]
+        return _gather_cond(lines, k, expr)
+    return None
+
+
+def _expand_property_refs(cond, lines, _depth=0):
+    """Recursively inline simple `self._foo` @property references into cond.
+
+    Boost (and similarly-shaped recipes) gate requires() on helper properties
+    like `self._with_bzip2` rather than `self.options.bzip2` directly, which
+    _cond_skip can't see through on its own.
+    """
+    if _depth > 4:
+        return cond
+
+    changed = False
+
+    def repl(m):
+        nonlocal changed
+        expr = _find_property_expr(lines, m.group(1))
+        if expr is None:
+            return m.group(0)
+        changed = True
+        return f"({expr})"
+
+    cond = _PROPERTY_REF_RE.sub(repl, cond)
+    return _expand_property_refs(cond, lines, _depth + 1) if changed else cond
+
+
 def _cond_skip(cond, options):
     """Return True if an if/elif condition means the block should be skipped."""
     if _OS_EQ_RE.search(cond) or _OS_IN_RE.search(cond):
@@ -189,11 +237,14 @@ def _cond_skip(cond, options):
         if opt in options and options[opt] != expected:
             return True
 
+    def _negate_if_bool(negated, value):
+        return not value if negated and isinstance(value, bool) else value
+
     opt_values = []
-    for om in re.finditer(r'\bself\.options\.(?!get_safe\b)(\w+)\b(?!\s*[!=<>])', cond):
-        opt_values.append(options.get(om.group(1)))
-    for om in re.finditer(r'self\.options\.get_safe\(["\'](\w+)["\']', cond):
-        opt_values.append(options.get(om.group(1)))
+    for om in re.finditer(r'(not\s+)?\bself\.options\.(?!get_safe\b)(\w+)\b(?!\s*[!=<>])', cond):
+        opt_values.append(_negate_if_bool(bool(om.group(1)), options.get(om.group(2))))
+    for om in re.finditer(r'(not\s+)?self\.options\.get_safe\(["\'](\w+)["\']', cond):
+        opt_values.append(_negate_if_bool(bool(om.group(1)), options.get(om.group(2))))
 
     if not opt_values:
         return False
@@ -202,6 +253,22 @@ def _cond_skip(cond, options):
     if has_or:
         return all(v is False for v in opt_values) and all(v is not None for v in opt_values)
     return any(v is False for v in opt_values)
+
+
+def _resolve_cond_skip(cond, lines, options):
+    """_cond_skip, falling back to property expansion only if the raw condition is inconclusive.
+
+    Some helper properties (e.g. `self._settings_build`) already contain an
+    `os ==` substring that the raw regex matches directly — expanding those
+    can strip the substring and produce a false negative. Only expand when
+    the unexpanded condition didn't already resolve, so we add coverage for
+    option-gating properties (e.g. boost's `self._with_bzip2`) without
+    disturbing conditions that already match as-is.
+    """
+    if _cond_skip(cond, options):
+        return True
+    expanded = _expand_property_refs(cond, lines)
+    return expanded != cond and _cond_skip(expanded, options)
 
 
 def extract_raw_requires(conanfile_text, options=None):
@@ -239,7 +306,7 @@ def extract_raw_requires(conanfile_text, options=None):
                 continue
             cond = stripped[3 if is_if else 5:].rstrip(": \t")
             cond = _gather_cond(lines, i, cond)
-            if _cond_skip(cond, options):
+            if _resolve_cond_skip(cond, lines, options):
                 skip = True
                 break
             req_indent = indent

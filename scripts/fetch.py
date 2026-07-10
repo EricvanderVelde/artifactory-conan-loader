@@ -245,6 +245,29 @@ class Fetcher:
 
         return data_path, script_path
 
+    # -- pinning ---------------------------------------------------------------
+
+    def _auto_pin_top_level(self, specs):
+        """Pin every top-level ref's version so transitive deps reuse it instead
+        of picking the newest CCI version that satisfies their range.
+
+        --pin on the CLI always wins (self.pins is pre-populated from it before
+        this runs). A name listed at the top level with two different versions
+        is ambiguous, so it's left alone rather than guessing.
+        """
+        versions_by_name: dict = {}
+        for name, version, _folder, _options in specs:
+            versions_by_name.setdefault(name, set()).add(version)
+
+        for name, versions in versions_by_name.items():
+            if name in self.pins:
+                continue
+            if len(versions) > 1:
+                print(f"  NOTE: {name} listed at top level with multiple versions "
+                      f"{sorted(versions)} — not auto-pinning.")
+                continue
+            self.pins[name] = next(iter(versions))
+
     # -- orchestration -------------------------------------------------------
 
     def run(self, cli_specs):
@@ -260,6 +283,8 @@ class Fetcher:
                     sys.exit(f"ERROR: Invalid spec '{spec}'. Expected name/version[:folder].")
                 name, version = spec.split("/", 1)
                 specs.append((name, version, folder, {}))
+
+        self._auto_pin_top_level(specs)
 
         print("=== Resolving dependency tree ===")
         pkg_list = self.resolve_packages(specs)
@@ -328,7 +353,10 @@ def main():
 
     g = p.add_argument_group("Dependency resolution")
     g.add_argument("--pin", metavar="name=version", action="append",
-                   help="Pin a dependency to a specific version (may be repeated)")
+                   help="Pin a dependency to a specific version (may be repeated). "
+                        "Every top-level PKG_SPEC/--packages-file ref is pinned "
+                        "automatically; use --pin to override or to pin a "
+                        "transitive dependency that isn't listed directly.")
 
     args = p.parse_args()
     if not args.packages and not args.packages_file:

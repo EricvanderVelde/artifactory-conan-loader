@@ -109,8 +109,14 @@ transitive dependencies are discovered automatically by analysing each
 recipe's `conanfile.py`.  Options you set also gate dependency resolution:
 setting `with_otlp_grpc: false` means the gRPC stack is not included.
 
+Every package listed at the top level of `packages.yml` is automatically
+pinned to the version you gave it, so transitive requirements (e.g. a test
+framework's `cmake/[>=3.16]` build requirement) reuse that version instead of
+picking the newest one available in CCI.  Listing the same package twice with
+two different versions is ambiguous, so it's left unpinned in that case.
+
 ```bash
-# Pin a transitive dependency to a specific version
+# Pin a transitive dependency that isn't listed directly in packages.yml
 python3 scripts/fetch.py --packages-file packages.yml \
     --cci-path ~/cci --pin openssl=3.4.1
 ```
