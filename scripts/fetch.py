@@ -170,15 +170,16 @@ class Fetcher:
         resolved = set()
         visiting = set()  # cycle detection
 
-        def visit(name, version, folder, options=None):
+        def visit(name, version, folder, options=None, depth=0):
+            indent = "  " * (depth + 1)
             ref = f"{name}/{version}"
             if ref in resolved:
                 return
             if ref in visiting:
-                print(f"  WARNING: Circular dependency at {ref}, skipping.")
+                print(f"{indent}WARNING: Circular dependency at {ref}, skipping.")
                 return
             visiting.add(ref)
-            print(f"\n  Resolving {ref} ...")
+            print(f"\n{indent}Resolving {ref} ...")
             recipe_dir, actual_folder = self.copy_recipe(name, version, folder)
             conanfile_path = recipe_dir / "conanfile.py"
             if conanfile_path.exists():
@@ -188,10 +189,10 @@ class Fetcher:
                     dep_name, dep_range = parse_dep_ref(dep_ref)
                     best, best_folder = self.pick_version(dep_name, dep_range)
                     if best is None:
-                        print(f"  WARNING: No version of {dep_name} satisfies {dep_range} — skipping.")
+                        print(f"{indent}  WARNING: No version of {dep_name} satisfies {dep_range} — skipping.")
                         continue
-                    print(f"    {dep_name}: {dep_range}  →  {best}")
-                    visit(dep_name, best, best_folder, options=None)
+                    print(f"{indent}  {dep_name}: {dep_range}  →  {best}")
+                    visit(dep_name, best, best_folder, options=None, depth=depth + 1)
             visiting.discard(ref)
             resolved.add(ref)
             order.append((name, version, actual_folder, options))

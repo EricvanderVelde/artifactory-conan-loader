@@ -237,6 +237,12 @@ def _cond_skip(cond, options):
         if opt in options and options[opt] != expected:
             return True
 
+    om = re.search(r'self\.options\.get_safe\(["\'](\w+)["\'][^)]*\)\s*==\s*["\']([^"\']+)["\']', cond)
+    if om:
+        opt, expected = om.group(1), om.group(2)
+        if opt in options and options[opt] != expected:
+            return True
+
     def _negate_if_bool(negated, value):
         return not value if negated and isinstance(value, bool) else value
 
