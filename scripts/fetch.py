@@ -183,7 +183,7 @@ class Fetcher:
             conanfile_path = recipe_dir / "conanfile.py"
             if conanfile_path.exists():
                 text = conanfile_path.read_text()
-                filter_opts = options if options is not None else extract_default_options(text)
+                filter_opts = {**extract_default_options(text), **(options or {})}
                 for dep_ref, _ in extract_raw_requires(text, options=filter_opts):
                     dep_name, dep_range = parse_dep_ref(dep_ref)
                     best, best_folder = self.pick_version(dep_name, dep_range)
