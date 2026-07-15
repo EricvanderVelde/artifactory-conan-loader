@@ -177,9 +177,25 @@ def _gather_cond(lines, if_lineno, cond):
 
 _PROPERTY_REF_RE = re.compile(r'self\.(_\w+)\b(?!\s*\()')
 
+# Either form an option can be referenced in: self.options.foo or
+# self.options.get_safe("foo"[, default]). Group 1 is the get_safe name,
+# group 2 the plain-attribute name — exactly one of the two is set.
+_OPTION_REF = r'self\.options\.(?:get_safe\(["\'](\w+)["\'][^)]*\)|(?!get_safe\b)(\w+)\b)'
+_OPT_EQ_RE = re.compile(_OPTION_REF + r'\s*==\s*["\']([^"\']+)["\']')
+_OPT_VALUE_RE = re.compile(r'(not\s+)?\b' + _OPTION_REF + r'(?!\s*[!=<>])')
 
-def _find_property_expr(lines, name):
-    """Return the (possibly multi-line) return-expression of a @property, or None."""
+
+def _find_property_expr(lines, name, cache):
+    """Return the (possibly multi-line) return-expression of a @property, or None.
+
+    Cached per name since sibling if/elif conditions in the same conanfile
+    (e.g. boost's dozen `self._with_*` gates) repeatedly reference the same
+    handful of properties.
+    """
+    if name in cache:
+        return cache[name]
+
+    expr = None
     def_re = re.compile(r'^\s*def\s+' + re.escape(name) + r'\s*\(self\)\s*:\s*$')
     for i, line in enumerate(lines):
         if not def_re.match(line):
@@ -192,35 +208,36 @@ def _find_property_expr(lines, name):
         k = i + 1
         while k < len(lines) and not lines[k].strip():
             k += 1
-        if k >= len(lines) or not lines[k].strip().startswith('return '):
-            return None  # body has logic beyond a single return — too complex to inline
-        expr = lines[k].strip()[len('return '):]
-        return _gather_cond(lines, k, expr)
-    return None
+        if k < len(lines) and lines[k].strip().startswith('return '):
+            expr = _gather_cond(lines, k, lines[k].strip()[len('return '):])
+        break  # body has logic beyond a single return — too complex to inline
+
+    cache[name] = expr
+    return expr
 
 
-def _expand_property_refs(cond, lines, _depth=0):
-    """Recursively inline simple `self._foo` @property references into cond.
+def _expand_property_refs(cond, lines, cache, max_rounds=5):
+    """Inline simple `self._foo` @property references into cond, to a fixed point.
 
     Boost (and similarly-shaped recipes) gate requires() on helper properties
     like `self._with_bzip2` rather than `self.options.bzip2` directly, which
     _cond_skip can't see through on its own.
     """
-    if _depth > 4:
-        return cond
+    for _ in range(max_rounds):
+        changed = False
 
-    changed = False
+        def repl(m):
+            nonlocal changed
+            expr = _find_property_expr(lines, m.group(1), cache)
+            if expr is None:
+                return m.group(0)
+            changed = True
+            return f"({expr})"
 
-    def repl(m):
-        nonlocal changed
-        expr = _find_property_expr(lines, m.group(1))
-        if expr is None:
-            return m.group(0)
-        changed = True
-        return f"({expr})"
-
-    cond = _PROPERTY_REF_RE.sub(repl, cond)
-    return _expand_property_refs(cond, lines, _depth + 1) if changed else cond
+        cond = _PROPERTY_REF_RE.sub(repl, cond)
+        if not changed:
+            break
+    return cond
 
 
 def _cond_skip(cond, options):
@@ -231,26 +248,19 @@ def _cond_skip(cond, options):
     if not options:
         return False
 
-    om = re.search(r'self\.options\.(\w+)\s*==\s*["\']([^"\']+)["\']', cond)
+    om = _OPT_EQ_RE.search(cond)
     if om:
-        opt, expected = om.group(1), om.group(2)
-        if opt in options and options[opt] != expected:
-            return True
-
-    om = re.search(r'self\.options\.get_safe\(["\'](\w+)["\'][^)]*\)\s*==\s*["\']([^"\']+)["\']', cond)
-    if om:
-        opt, expected = om.group(1), om.group(2)
+        opt, expected = om.group(1) or om.group(2), om.group(3)
         if opt in options and options[opt] != expected:
             return True
 
     def _negate_if_bool(negated, value):
         return not value if negated and isinstance(value, bool) else value
 
-    opt_values = []
-    for om in re.finditer(r'(not\s+)?\bself\.options\.(?!get_safe\b)(\w+)\b(?!\s*[!=<>])', cond):
-        opt_values.append(_negate_if_bool(bool(om.group(1)), options.get(om.group(2))))
-    for om in re.finditer(r'(not\s+)?self\.options\.get_safe\(["\'](\w+)["\']', cond):
-        opt_values.append(_negate_if_bool(bool(om.group(1)), options.get(om.group(2))))
+    opt_values = [
+        _negate_if_bool(bool(om.group(1)), options.get(om.group(2) or om.group(3)))
+        for om in _OPT_VALUE_RE.finditer(cond)
+    ]
 
     if not opt_values:
         return False
@@ -261,7 +271,7 @@ def _cond_skip(cond, options):
     return any(v is False for v in opt_values)
 
 
-def _resolve_cond_skip(cond, lines, options):
+def _resolve_cond_skip(cond, lines, options, cache):
     """_cond_skip, falling back to property expansion only if the raw condition is inconclusive.
 
     Some helper properties (e.g. `self._settings_build`) already contain an
@@ -273,7 +283,7 @@ def _resolve_cond_skip(cond, lines, options):
     """
     if _cond_skip(cond, options):
         return True
-    expanded = _expand_property_refs(cond, lines)
+    expanded = _expand_property_refs(cond, lines, cache)
     return expanded != cond and _cond_skip(expanded, options)
 
 
@@ -281,6 +291,7 @@ def extract_raw_requires(conanfile_text, options=None):
     """Return list of (ref, is_tool_require) from conanfile.py, filtered by conditions."""
     lines = conanfile_text.splitlines()
     results = []
+    prop_cache: dict = {}  # @property name -> return-expression, shared across all conditions below
 
     for m in re.finditer(
         r"self\.(tool_requires|requires)\s*\(\s*[fF]?[\"']([^\"']+)[\"']",
@@ -312,7 +323,7 @@ def extract_raw_requires(conanfile_text, options=None):
                 continue
             cond = stripped[3 if is_if else 5:].rstrip(": \t")
             cond = _gather_cond(lines, i, cond)
-            if _resolve_cond_skip(cond, lines, options):
+            if _resolve_cond_skip(cond, lines, options, prop_cache):
                 skip = True
                 break
             req_indent = indent
