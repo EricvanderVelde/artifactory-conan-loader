@@ -5,7 +5,8 @@ Phase 2 — Upload bundle to Artifactory and build Conan packages.
 Run on the air-gapped machine after copying the bundle produced by fetch.py.
 Reads the manifest, uploads source tarballs to Artifactory, patches
 conandata.yml files to use Artifactory URLs, then builds and uploads every
-Conan package.  Optionally builds and runs the test project.
+Conan package whose exact package_id isn't already on the remote.
+Optionally builds and runs the test project.
 
 Usage:
     python3 scripts/deploy.py \\
@@ -14,6 +15,9 @@ Usage:
 
     # Skip conan build (sources-only upload):
     python3 scripts/deploy.py --bundle-dir bundle/ --no-build
+
+    # Rebuild even packages already uploaded under this package_id:
+    python3 scripts/deploy.py --bundle-dir bundle/ --force-build
 
     # Also build and run the test project after provisioning:
     python3 scripts/deploy.py --bundle-dir bundle/ --run-tests
@@ -24,6 +28,7 @@ Environment variables:
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -164,8 +169,74 @@ class Deployer:
 
     # -- conan build & upload ------------------------------------------------
 
+    def _profile_args(self):
+        return [
+            f"--profile:build={self.profile_path}",
+            f"--profile:host={self.profile_path}",
+            "-s", f"compiler.cppstd={self.a.cppstd}",
+        ]
+
+    @staticmethod
+    def _option_args(name, options):
+        args = []
+        for opt_name, opt_val in (options or {}).items():
+            conan_val = "True" if opt_val is True else "False" if opt_val is False else str(opt_val)
+            args += ["-o", f"{name}/*:{opt_name}={conan_val}"]
+        return args
+
+    def _compute_package_id(self, name, version, recipe_dir, options):
+        """Return the package_id conan would build for this recipe+profile+options.
+
+        None if it can't be determined (e.g. a dependency isn't resolvable
+        yet) — callers should fall through to building in that case.
+        """
+        cmd = [
+            "conan", "graph", "info", str(recipe_dir),
+            "--version", version,
+            *self._profile_args(),
+            *self._option_args(name, options),
+            "--format=json",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            return None
+        try:
+            data = json.loads(result.stdout)
+        except ValueError:
+            return None
+        nodes = data.get("graph", {}).get("nodes", {})
+        if isinstance(nodes, dict):
+            nodes = nodes.values()
+        ref_prefix = f"{name}/{version}"
+        for node in nodes:
+            if isinstance(node, dict) and str(node.get("ref", "")).startswith(ref_prefix):
+                return node.get("package_id")
+        return None
+
+    def _package_exists_remote(self, name, version, package_id):
+        """Return True if this exact package_id is already uploaded to the configured remote."""
+        result = subprocess.run(
+            ["conan", "list", f"{name}/{version}:{package_id}",
+             "-r", self.a.remote_name, "--format=json"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return False
+        try:
+            data = json.loads(result.stdout)
+        except ValueError:
+            return False
+        return any(isinstance(refs, dict) and refs for refs in data.values())
+
     def build_and_upload(self, name, version, recipe_dir, options=None):
         ref = f"{name}/{version}"
+
+        if not self.a.force_build:
+            package_id = self._compute_package_id(name, version, recipe_dir, options)
+            if package_id and self._package_exists_remote(name, version, package_id):
+                print(f"  {ref}:{package_id[:12]} already in Artifactory — skipping build.")
+                return
+
         print(f"  Exporting {ref} ...")
         subprocess.run(
             ["conan", "export", str(recipe_dir), "--version", version],
@@ -174,18 +245,11 @@ class Deployer:
         cmd = [
             "conan", "create", str(recipe_dir),
             "--version", version,
-            f"--profile:build={self.profile_path}",
-            f"--profile:host={self.profile_path}",
+            *self._profile_args(),
             "--build", "missing",
-            "-s", f"compiler.cppstd={self.a.cppstd}",
             "--test-folder", "",
+            *self._option_args(name, options),
         ]
-        for opt_name, opt_val in (options or {}).items():
-            if isinstance(opt_val, bool):
-                conan_val = "True" if opt_val else "False"
-            else:
-                conan_val = str(opt_val)
-            cmd += ["-o", f"{name}/*:{opt_name}={conan_val}"]
         if options:
             print(f"  Options: {options}")
         print(f"  Building {ref} ...")
@@ -350,6 +414,9 @@ def main():
                    help="Skip source upload to Artifactory")
     g.add_argument("--no-build", action="store_true",
                    help="Skip conan create and upload")
+    g.add_argument("--force-build", action="store_true",
+                   help="Rebuild and re-upload even if the exact package_id "
+                        "already exists on the remote")
 
     g = p.add_argument_group("Testing")
     g.add_argument("--run-tests", action="store_true",

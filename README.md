@@ -162,7 +162,10 @@ What the script does:
    generic repository (`conan-sources`).
 3. Patches each `conandata.yml` in-place to replace upstream URLs with
    Artifactory URLs.
-4. Runs `conan export`, `conan create`, and `conan upload` for each package
+4. For each package, computes the exact `package_id` for the current
+   profile/options (`conan graph info`) and checks whether the Artifactory
+   remote already has it (`conan list ... -r <remote>`) — if so, the build is
+   skipped. Otherwise runs `conan export`, `conan create`, and `conan upload`
    in dependency order.
 
 Step 4 (the actual Conan package upload) authenticates via the Conan remote
@@ -177,6 +180,7 @@ for step 2, which is a plain HTTP upload to a *generic* Artifactory repo
 |---|---|
 | `--no-mirror` | Skip source upload (assume sources already in Artifactory) |
 | `--no-build` | Skip `conan create` / `conan upload` |
+| `--force-build` | Rebuild and re-upload even if the exact `package_id` already exists on the remote |
 | `--run-tests` | Build and run `test_project/` after provisioning |
 | `--cppstd STD` | C++ standard for `conan create` (default: `17`) |
 | `--profile NAME` | Conan profile name or path (default: `linux-x86_64-gcc-cxx17`) |
