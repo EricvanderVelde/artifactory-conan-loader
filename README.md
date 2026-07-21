@@ -152,7 +152,7 @@ populated `sources/` directory) before proceeding to Step 3.
 ```bash
 python3 scripts/deploy.py \
     --bundle-dir bundle/ \
-    --artifactory-url http://localhost:8082/artifactory
+    --sources-url http://localhost:8082/artifactory
 ```
 
 What the script does:
@@ -165,6 +165,12 @@ What the script does:
 4. Runs `conan export`, `conan create`, and `conan upload` for each package
    in dependency order.
 
+Step 4 (the actual Conan package upload) authenticates via the Conan remote
+you already configured and logged in to in Step 0 — it needs no credentials
+of its own. `--sources-url`/`--sources-user`/`--sources-pass` are only used
+for step 2, which is a plain HTTP upload to a *generic* Artifactory repo
+(outside Conan's own remote/auth protocol, so `conan remote` can't cover it).
+
 ### Options
 
 | Flag | Description |
@@ -174,6 +180,10 @@ What the script does:
 | `--run-tests` | Build and run `test_project/` after provisioning |
 | `--cppstd STD` | C++ standard for `conan create` (default: `17`) |
 | `--profile NAME` | Conan profile name or path (default: `linux-x86_64-gcc-cxx17`) |
+| `--sources-url URL` | Artifactory base URL for the generic sources-repo upload (default: `http://localhost:8082/artifactory`) |
+| `--sources-user USER` | HTTP Basic Auth user for the sources-repo upload (default: `admin`) |
+| `--sources-pass PASS` | HTTP Basic Auth password for the sources-repo upload (default: `password`) |
+| `--sources-repo REPO` | Artifactory generic repo name for source tarballs (default: `conan-sources`) |
 
 ### Environment variables
 
@@ -181,9 +191,9 @@ What the script does:
 |---|---|---|
 | `CCI_URL` | `https://github.com/conan-io/conan-center-index` | fetch.py |
 | `CCI_PATH` | _(none)_ | fetch.py |
-| `ARTIFACTORY_URL` | `http://localhost:8082/artifactory` | deploy.py |
-| `ARTIFACTORY_USER` | `admin` | deploy.py |
-| `ARTIFACTORY_PASSWORD` | `password` | deploy.py |
+| `ARTIFACTORY_URL` | `http://localhost:8082/artifactory` | deploy.py (default for `--sources-url`) |
+| `ARTIFACTORY_USER` | `admin` | deploy.py (default for `--sources-user`) |
+| `ARTIFACTORY_PASSWORD` | `password` | deploy.py (default for `--sources-pass`) |
 | `CONAN_REMOTE_NAME` | `artifactory` | deploy.py |
 | `CONAN_PROFILE` | `linux-x86_64-gcc-cxx17` | deploy.py |
 

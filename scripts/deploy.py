@@ -10,7 +10,7 @@ Conan package.  Optionally builds and runs the test project.
 Usage:
     python3 scripts/deploy.py \\
         --bundle-dir bundle/ \\
-        --artifactory-url http://artifactory:8082/artifactory
+        --sources-url http://artifactory:8082/artifactory
 
     # Skip conan build (sources-only upload):
     python3 scripts/deploy.py --bundle-dir bundle/ --no-build
@@ -74,12 +74,12 @@ class Deployer:
     # -- source upload -------------------------------------------------------
 
     def _upload_file(self, src, filename):
-        art_target = f"{self.a.artifactory_url}/{self.a.sources_repo}/{filename}"
-        if art_exists(art_target, self.a.artifactory_user, self.a.artifactory_pass):
+        art_target = f"{self.a.sources_url}/{self.a.sources_repo}/{filename}"
+        if art_exists(art_target, self.a.sources_user, self.a.sources_pass):
             print(f"    {filename}: already in Artifactory.")
         else:
             print(f"    Uploading {filename} ...")
-            art_upload(src, art_target, self.a.artifactory_user, self.a.artifactory_pass)
+            art_upload(src, art_target, self.a.sources_user, self.a.sources_pass)
             print(f"    {filename}: uploaded.")
         return art_target
 
@@ -332,13 +332,16 @@ def main():
     g.add_argument("--cppstd", default="17", metavar="STD",
                    help="C++ standard passed to conan create (default: 17)")
 
-    g = p.add_argument_group("Artifactory")
-    g.add_argument("--artifactory-url", metavar="URL",
-                   default=os.environ.get("ARTIFACTORY_URL", "http://localhost:8082/artifactory"))
-    g.add_argument("--artifactory-user", metavar="USER",
-                   default=os.environ.get("ARTIFACTORY_USER", "admin"))
-    g.add_argument("--artifactory-pass", metavar="PASS",
-                   default=os.environ.get("ARTIFACTORY_PASSWORD", "password"))
+    g = p.add_argument_group("Source upload")
+    g.add_argument("--sources-url", metavar="URL",
+                   default=os.environ.get("ARTIFACTORY_URL", "http://localhost:8082/artifactory"),
+                   help="Base URL of the Artifactory instance to mirror source tarballs into")
+    g.add_argument("--sources-user", metavar="USER",
+                   default=os.environ.get("ARTIFACTORY_USER", "admin"),
+                   help="HTTP Basic Auth user for uploading to the generic sources repo")
+    g.add_argument("--sources-pass", metavar="PASS",
+                   default=os.environ.get("ARTIFACTORY_PASSWORD", "password"),
+                   help="HTTP Basic Auth password for uploading to the generic sources repo")
     g.add_argument("--sources-repo", default="conan-sources", metavar="REPO",
                    help="Artifactory generic repo for source tarballs (default: conan-sources)")
 
