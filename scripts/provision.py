@@ -407,6 +407,16 @@ def _sha256_file(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _file_checksums(path, algorithms=("sha256", "sha1", "md5")):
+    """Compute multiple checksums of a file in a single read pass."""
+    hashers = {name: hashlib.new(name) for name in algorithms}
+    with Path(path).open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            for h in hashers.values():
+                h.update(chunk)
+    return {name: h.hexdigest() for name, h in hashers.items()}
+
+
 # ---------------------------------------------------------------------------
 # Artifactory helpers
 # ---------------------------------------------------------------------------
@@ -427,17 +437,20 @@ def art_exists(url, user, password):
         raise
 
 
-def art_upload(local_path, target_url, user, password, sha256=None):
+def art_upload(local_path, target_url, user, password, sha256=None, sha1=None, md5=None):
     """Upload local_path to target_url.
 
-    If sha256 is given, Artifactory verifies the uploaded content against it
-    server-side and rejects the upload (409) on mismatch, via the
-    X-Checksum-Sha256 deploy header.
+    Any of sha256/sha1/md5 given are sent as X-Checksum-* deploy headers.
+    Artifactory verifies the uploaded content against them server-side and
+    rejects the upload (409) on a mismatch.
     """
-    checksum_header = ["-H", f"X-Checksum-Sha256: {sha256}"] if sha256 else []
+    checksum_headers = []
+    for name, value in (("Sha256", sha256), ("Sha1", sha1), ("Md5", md5)):
+        if value:
+            checksum_headers += ["-H", f"X-Checksum-{name}: {value}"]
     subprocess.run(
         ["curl", "--silent", "--show-error", "--fail",
-         "-u", f"{user}:{password}", *checksum_header, "-T", str(local_path), target_url],
+         "-u", f"{user}:{password}", *checksum_headers, "-T", str(local_path), target_url],
         check=True,
     )
 

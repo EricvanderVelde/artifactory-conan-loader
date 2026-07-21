@@ -42,7 +42,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent))
 from provision import (
     art_exists, art_upload,
-    _sha256_file,
+    _sha256_file, _file_checksums,
     walk_sources, _iter_git_sources, source_filename,
     conan_option_args, conan_package_id, conan_package_exists,
 )
@@ -87,15 +87,18 @@ class Deployer:
         anywhere between the original download and this upload, not just in
         transit during this curl call. Falls back to hashing src itself when
         no declared checksum is available (e.g. git-based sources, identified
-        by commit instead).
+        by commit instead). conandata.yml never declares sha1/md5, so those
+        are always computed from src.
         """
         art_target = f"{self.a.sources_url}/{self.a.sources_repo}/{filename}"
         if art_exists(art_target, self.a.sources_user, self.a.sources_pass):
             print(f"    {filename}: already in Artifactory.")
         else:
             print(f"    Uploading {filename} ...")
+            checksums = _file_checksums(src)
             art_upload(src, art_target, self.a.sources_user, self.a.sources_pass,
-                       sha256=sha256 or _sha256_file(src))
+                       sha256=sha256 or checksums["sha256"],
+                       sha1=checksums["sha1"], md5=checksums["md5"])
             print(f"    {filename}: uploaded.")
         return art_target
 

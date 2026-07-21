@@ -159,8 +159,8 @@ What the script does:
 
 1. Reads `bundle/manifest.yml` for the package list and build order.
 2. Uploads every source tarball from `bundle/sources/` to the Artifactory
-   generic repository (`conan-sources`), sending its SHA-256 as an
-   `X-Checksum-Sha256` header so Artifactory verifies the upload server-side
+   generic repository (`conan-sources`), sending its SHA-256, SHA-1, and MD5
+   as `X-Checksum-*` headers so Artifactory verifies the upload server-side
    and rejects it (409) on a mismatch, instead of storing it as unverified.
 3. Patches each `conandata.yml` in-place to replace upstream URLs with
    Artifactory URLs.
