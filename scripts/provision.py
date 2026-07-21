@@ -355,7 +355,14 @@ def source_filename(url):
 
 
 def walk_sources(node):
-    """Yield (url, sha256) from file-based conandata source entries (skip git sources)."""
+    """Yield (url, sha256) from file-based conandata source entries (skip git sources).
+
+    Some recipes (e.g. cmake's `binary` variant) key their sources by Conan OS
+    name to ship a separate binary per platform. When a dict's keys are
+    exactly the set of Conan OS names, only the host OS's branch is walked —
+    mirrors the settings.os filtering already applied to conditional
+    requires() in _cond_skip.
+    """
     if isinstance(node, dict):
         if "commit" in node:
             return
@@ -367,6 +374,8 @@ def walk_sources(node):
                     yield u, sha256
             else:
                 yield url, sha256
+        elif node and set(node) <= _ALL_CONAN_OS:
+            yield from walk_sources(node.get(_HOST_CONAN_OS, {}))
         else:
             for v in node.values():
                 yield from walk_sources(v)
