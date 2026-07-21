@@ -28,7 +28,6 @@ Environment variables:
 """
 
 import argparse
-import json
 import os
 import re
 import subprocess
@@ -45,6 +44,7 @@ from provision import (
     art_exists, art_upload,
     _sha256_file,
     walk_sources, _iter_git_sources, source_filename,
+    conan_option_args, conan_package_id, conan_package_exists,
 )
 
 
@@ -176,64 +176,14 @@ class Deployer:
             "-s", f"compiler.cppstd={self.a.cppstd}",
         ]
 
-    @staticmethod
-    def _option_args(name, options):
-        args = []
-        for opt_name, opt_val in (options or {}).items():
-            conan_val = "True" if opt_val is True else "False" if opt_val is False else str(opt_val)
-            args += ["-o", f"{name}/*:{opt_name}={conan_val}"]
-        return args
-
-    def _compute_package_id(self, name, version, recipe_dir, options):
-        """Return the package_id conan would build for this recipe+profile+options.
-
-        None if it can't be determined (e.g. a dependency isn't resolvable
-        yet) — callers should fall through to building in that case.
-        """
-        cmd = [
-            "conan", "graph", "info", str(recipe_dir),
-            "--version", version,
-            *self._profile_args(),
-            *self._option_args(name, options),
-            "--format=json",
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            return None
-        try:
-            data = json.loads(result.stdout)
-        except ValueError:
-            return None
-        nodes = data.get("graph", {}).get("nodes", {})
-        if isinstance(nodes, dict):
-            nodes = nodes.values()
-        ref_prefix = f"{name}/{version}"
-        for node in nodes:
-            if isinstance(node, dict) and str(node.get("ref", "")).startswith(ref_prefix):
-                return node.get("package_id")
-        return None
-
-    def _package_exists_remote(self, name, version, package_id):
-        """Return True if this exact package_id is already uploaded to the configured remote."""
-        result = subprocess.run(
-            ["conan", "list", f"{name}/{version}:{package_id}",
-             "-r", self.a.remote_name, "--format=json"],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            return False
-        try:
-            data = json.loads(result.stdout)
-        except ValueError:
-            return False
-        return any(isinstance(refs, dict) and refs for refs in data.values())
-
     def build_and_upload(self, name, version, recipe_dir, options=None):
         ref = f"{name}/{version}"
 
         if not self.a.force_build:
-            package_id = self._compute_package_id(name, version, recipe_dir, options)
-            if package_id and self._package_exists_remote(name, version, package_id):
+            package_id = conan_package_id(
+                recipe_dir, name, version, self.profile_path, self.a.cppstd, options
+            )
+            if package_id and conan_package_exists(name, version, package_id, self.a.remote_name):
                 print(f"  {ref}:{package_id[:12]} already in Artifactory — skipping build.")
                 return
 
@@ -248,7 +198,7 @@ class Deployer:
             *self._profile_args(),
             "--build", "missing",
             "--test-folder", "",
-            *self._option_args(name, options),
+            *conan_option_args(name, options),
         ]
         if options:
             print(f"  Options: {options}")

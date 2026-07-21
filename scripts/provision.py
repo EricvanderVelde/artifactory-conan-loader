@@ -436,6 +436,79 @@ def art_upload(local_path, target_url, user, password):
 
 
 # ---------------------------------------------------------------------------
+# Conan CLI helpers
+# ---------------------------------------------------------------------------
+
+def conan_json(cmd):
+    """Run a conan subcommand and parse its --format=json output, or None on any failure.
+
+    A non-zero exit or unparseable output means the check itself is broken
+    (bad conan install, malformed args, remote unreachable at the transport
+    level) rather than a normal "not found", so it's worth a warning — unlike
+    a valid JSON response reporting "not found", which conan itself uses as
+    its routine way of saying a recipe/package doesn't exist yet.
+    """
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  WARNING: `{' '.join(cmd)}` failed (exit {result.returncode}): "
+              f"{result.stderr.strip()[:200]}")
+        return None
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        print(f"  WARNING: `{' '.join(cmd)}` produced unparseable output — treating as unknown.")
+        return None
+
+
+def conan_option_args(name, options):
+    """Build -o name/*:opt=value args for `conan create`/`conan graph info`."""
+    args = []
+    for opt_name, opt_val in (options or {}).items():
+        conan_val = "True" if opt_val is True else "False" if opt_val is False else str(opt_val)
+        args += ["-o", f"{name}/*:{opt_name}={conan_val}"]
+    return args
+
+
+def conan_package_id(recipe_dir, name, version, profile_path, cppstd, options):
+    """Return the package_id conan would build for this recipe+profile+options.
+
+    None if it can't be determined (e.g. a dependency isn't resolvable yet) —
+    callers should fall through to building in that case.
+    """
+    cmd = [
+        "conan", "graph", "info", str(recipe_dir),
+        "--version", version,
+        f"--profile:build={profile_path}", f"--profile:host={profile_path}",
+        "-s", f"compiler.cppstd={cppstd}",
+        *conan_option_args(name, options),
+        "--format=json",
+    ]
+    data = conan_json(cmd)
+    if data is None:
+        return None
+    graph = data.get("graph", {})
+    root_id = next(iter(graph.get("root", {})), None)
+    return graph.get("nodes", {}).get(root_id, {}).get("package_id")
+
+
+def conan_package_exists(name, version, package_id, remote_name):
+    """Return True if this exact package_id is already uploaded to the given remote."""
+    cmd = ["conan", "list", f"{name}/{version}:{package_id}",
+           "-r", remote_name, "--format=json"]
+    data = conan_json(cmd)
+    if data is None:
+        return False
+    info = next(iter(data.values()), {})
+    if not isinstance(info, dict) or "error" in info:
+        return False  # not found, or the query itself failed — either way, don't skip the build
+    for ref_data in info.values():
+        for rrev_data in ref_data.get("revisions", {}).values():
+            if package_id in rrev_data.get("packages", {}):
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Packages YAML
 # ---------------------------------------------------------------------------
 
