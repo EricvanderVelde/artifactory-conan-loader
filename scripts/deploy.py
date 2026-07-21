@@ -78,13 +78,24 @@ class Deployer:
 
     # -- source upload -------------------------------------------------------
 
-    def _upload_file(self, src, filename):
+    def _upload_file(self, src, filename, sha256=None):
+        """Upload src to Artifactory.
+
+        sha256, if given, should be the upstream-declared checksum (from
+        conandata.yml) rather than one computed from src, so the upload is
+        verified against the authoritative value — catching corruption
+        anywhere between the original download and this upload, not just in
+        transit during this curl call. Falls back to hashing src itself when
+        no declared checksum is available (e.g. git-based sources, identified
+        by commit instead).
+        """
         art_target = f"{self.a.sources_url}/{self.a.sources_repo}/{filename}"
         if art_exists(art_target, self.a.sources_user, self.a.sources_pass):
             print(f"    {filename}: already in Artifactory.")
         else:
             print(f"    Uploading {filename} ...")
-            art_upload(src, art_target, self.a.sources_user, self.a.sources_pass)
+            art_upload(src, art_target, self.a.sources_user, self.a.sources_pass,
+                       sha256=sha256 or _sha256_file(src))
             print(f"    {filename}: uploaded.")
         return art_target
 
@@ -110,7 +121,7 @@ class Deployer:
                 if not tarball.exists():
                     sys.exit(f"ERROR: Source tarball not in bundle: {tarball}\n  Re-run fetch.py.")
                 sha256 = _sha256_file(tarball)
-                art_target = self._upload_file(tarball, filename)
+                art_target = self._upload_file(tarball, filename, sha256=sha256)
                 conandata["sources"][version] = {"url": art_target, "sha256": sha256}
             conandata_path.write_text(
                 yaml.dump(conandata, default_flow_style=False, allow_unicode=True, sort_keys=False)
@@ -121,7 +132,7 @@ class Deployer:
 
         # --- file-based sources ---
         print("  Uploading sources ...")
-        for url, _sha256 in walk_sources(sources[version]):
+        for url, sha256 in walk_sources(sources[version]):
             if url in self.url_map:
                 continue
             filename = source_filename(url)
@@ -131,7 +142,7 @@ class Deployer:
                     f"ERROR: Source not found in bundle: {cached}\n"
                     f"  Re-run fetch.py to download missing sources."
                 )
-            self.url_map[url] = self._upload_file(cached, filename)
+            self.url_map[url] = self._upload_file(cached, filename, sha256=sha256)
 
         # Patch conandata.yml with Artifactory URLs (single-pass)
         text = conandata_path.read_text()

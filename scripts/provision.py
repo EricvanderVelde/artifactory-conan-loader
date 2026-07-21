@@ -427,10 +427,17 @@ def art_exists(url, user, password):
         raise
 
 
-def art_upload(local_path, target_url, user, password):
+def art_upload(local_path, target_url, user, password, sha256=None):
+    """Upload local_path to target_url.
+
+    If sha256 is given, Artifactory verifies the uploaded content against it
+    server-side and rejects the upload (409) on mismatch, via the
+    X-Checksum-Sha256 deploy header.
+    """
+    checksum_header = ["-H", f"X-Checksum-Sha256: {sha256}"] if sha256 else []
     subprocess.run(
         ["curl", "--silent", "--show-error", "--fail",
-         "-u", f"{user}:{password}", "-T", str(local_path), target_url],
+         "-u", f"{user}:{password}", *checksum_header, "-T", str(local_path), target_url],
         check=True,
     )
 
