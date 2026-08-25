@@ -173,13 +173,18 @@ class Fetcher:
         def visit(name, version, folder, options=None, depth=0, label=None):
             indent = "  " * depth
             ref = f"{name}/{version}"
+            # Keyed on options too, so multiple configurations of the same
+            # name/version (e.g. two packages.yml entries for boost/1.90.0
+            # with different options) are each resolved and kept, instead of
+            # the second being silently dropped as "already resolved".
+            key = (ref, tuple(sorted((options or {}).items())))
             line = label or ref
-            if ref in resolved:
+            if key in resolved:
                 return  # already printed and fully resolved elsewhere — no need to repeat it
-            if ref in visiting:
+            if key in visiting:
                 print(f"{indent}{line}  (circular — already resolving, skipped)")
                 return
-            visiting.add(ref)
+            visiting.add(key)
             print(f"{indent}{line}")
             recipe_dir, actual_folder = self.copy_recipe(name, version, folder)
             conanfile_path = recipe_dir / "conanfile.py"
@@ -194,8 +199,8 @@ class Fetcher:
                         continue
                     visit(dep_name, best, best_folder, options=None, depth=depth + 1,
                           label=f"{dep_name}: {dep_range}  →  {best}")
-            visiting.discard(ref)
-            resolved.add(ref)
+            visiting.discard(key)
+            resolved.add(key)
             order.append((name, version, actual_folder, options))
 
         for name, version, folder, options in specs:

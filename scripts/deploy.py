@@ -28,6 +28,7 @@ Environment variables:
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -67,14 +68,20 @@ class Deployer:
             for p in data.get("packages", [])
         ]
 
-        profile = Path(args.profile)
-        if not profile.exists():
-            candidate = Path(__file__).resolve().parent.parent / "profiles" / args.profile
-            if candidate.exists():
-                profile = candidate
-        self.profile_path = profile
+        profiles_dir = Path(__file__).resolve().parent.parent / "profiles"
+        self.profile_paths = [self._resolve_profile(name, profiles_dir) for name in args.profile]
+        self.profile_path = self.profile_paths[0]
 
         self.url_map: dict = {}  # upstream URL -> Artifactory URL
+
+    @staticmethod
+    def _resolve_profile(name, profiles_dir):
+        profile = Path(name)
+        if not profile.exists():
+            candidate = profiles_dir / name
+            if candidate.exists():
+                profile = candidate
+        return profile
 
     # -- source upload -------------------------------------------------------
 
@@ -261,7 +268,6 @@ class Deployer:
             capture_output=True, text=True,
         )
         if result.returncode == 0:
-            import json
             try:
                 data = json.loads(result.stdout)
                 revs = next(iter(next(iter(data["Local Cache"].values()))["revisions"].values()))
@@ -315,28 +321,60 @@ class Deployer:
 
     # -- orchestration -------------------------------------------------------
 
+    def _recipe_dir(self, name, folder):
+        recipe_dir = self.recipes_dir / name / folder
+        if not recipe_dir.exists():
+            sys.exit(
+                f"ERROR: Recipe not found in bundle: {recipe_dir}\n"
+                f"  Re-run fetch.py."
+            )
+        return recipe_dir
+
     def run(self):
         if not self.pkg_list:
             sys.exit("ERROR: Manifest is empty — run fetch.py first.")
 
-        print(f"=== Deploying {len(self.pkg_list)} packages ===")
-        for name, version, folder, options in self.pkg_list:
-            print(f"\n=== {name}/{version} ===")
-            recipe_dir = self.recipes_dir / name / folder
-            if not recipe_dir.exists():
-                sys.exit(
-                    f"ERROR: Recipe not found in bundle: {recipe_dir}\n"
-                    f"  Re-run fetch.py."
-                )
-            if not self.a.no_mirror:
-                self.upload_sources(name, version, recipe_dir)
-            if not self.a.no_build:
-                self.build_and_upload(name, version, recipe_dir, options or None)
+        print(f"=== Deploying {len(self.pkg_list)} packages "
+              f"across {len(self.profile_paths)} profile(s) ===")
+
+        if not self.a.no_mirror:
+            print("\n=== Uploading sources ===")
+            for name, version, folder, options in self.pkg_list:
+                print(f"\n=== {name}/{version} ===")
+                self.upload_sources(name, version, self._recipe_dir(name, folder))
+
+        if not self.a.no_build:
+            for profile_path in self.profile_paths:
+                self.profile_path = profile_path
+                print(f"\n=== Building with profile: {profile_path} ===")
+                for name, version, folder, options in self.pkg_list:
+                    print(f"\n=== {name}/{version} ===")
+                    self.build_and_upload(
+                        name, version, self._recipe_dir(name, folder), options or None
+                    )
 
         if self.a.run_tests:
-            self.run_tests()
+            for profile_path in self.profile_paths:
+                self.profile_path = profile_path
+                print(f"\n=== Running tests with profile: {profile_path} ===")
+                self.run_tests()
 
         print("\n=== All packages deployed ===")
+
+
+def _conan_profile_list():
+    """Names of every Conan profile registered in the current environment."""
+    result = subprocess.run(
+        ["conan", "profile", "list", "--format=json"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        sys.exit(f"ERROR: 'conan profile list' failed:\n{result.stderr}")
+    names = json.loads(result.stdout)
+    if not names:
+        sys.exit("ERROR: No Conan profiles found — run 'conan profile detect' "
+                  "or pass --profile explicitly.")
+    return sorted(names)
 
 
 def main():
@@ -352,9 +390,12 @@ def main():
                    help="Bundle directory produced by fetch.py (default: ./bundle)")
 
     g = p.add_argument_group("Conan")
-    g.add_argument("--profile", metavar="NAME_OR_PATH",
-                   default=os.environ.get("CONAN_PROFILE", "linux-x86_64-gcc-cxx17"),
-                   help="Conan profile name (looked up under profiles/) or absolute path")
+    g.add_argument("--profile", metavar="NAME_OR_PATH", action="append",
+                   help="Conan profile name (looked up under profiles/, then as a "
+                        "registered Conan profile) or absolute path. May be given "
+                        "multiple times to deploy every package under each profile in "
+                        "turn. Default: $CONAN_PROFILE, or every profile returned by "
+                        "'conan profile list' if that's unset.")
     g.add_argument("--remote-name", metavar="NAME",
                    default=os.environ.get("CONAN_REMOTE_NAME", "artifactory"))
     g.add_argument("--cppstd", default="17", metavar="STD",
@@ -387,6 +428,10 @@ def main():
                    help="Build and run test_project after provisioning")
 
     args = p.parse_args()
+    if not args.profile:
+        env_profile = os.environ.get("CONAN_PROFILE")
+        args.profile = [env_profile] if env_profile else _conan_profile_list()
+
     Deployer(args).run()
 
 

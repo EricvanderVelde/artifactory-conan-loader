@@ -1,8 +1,8 @@
 # packages.yml — packages to provision into Artifactory
 #
 # Usage:
-#   python3 scripts/provision.py --packages-file packages.yml
-#   python3 scripts/provision.py --packages-file packages.yml --auto-deps
+#   python3 scripts/fetch.py --packages-file packages.yml --cci-path /path/to/conan-center-index
+#   python3 scripts/deploy.py --bundle-dir bundle/
 #
 # ref format:  name/version  or  name/version:recipe-folder
 #
@@ -31,13 +31,14 @@ packages:
   - ref: cmake/3.31.12:binary
 
   # Core C++ libraries
-  - ref: gtest/1.17.0
-  - ref: spdlog/1.17.0
-    options:
-      use_std_fmt: true
-  - ref: boost/1.89.0
+  #- ref: gtest/1.17.0
+  #- ref: spdlog/1.17.0
+  #  options:
+  #    use_std_fmt: true
+  - ref: boost/1.90.0
     options:
       bzip2: false
+  - ref: boost/1.90.0
   # - ref: zlib/1.3.2
   # - ref: abseil/20260107.1
   # - ref: protobuf/6.33.5

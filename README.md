@@ -185,7 +185,7 @@ for step 2, which is a plain HTTP upload to a *generic* Artifactory repo
 | `--force-build` | Rebuild and re-upload even if the exact `package_id` already exists on the remote |
 | `--run-tests` | Build and run `test_project/` after provisioning |
 | `--cppstd STD` | C++ standard for `conan create` (default: `17`) |
-| `--profile NAME` | Conan profile name or path (default: `linux-x86_64-gcc-cxx17`) |
+| `--profile NAME` | Conan profile name or path; repeatable to deploy every package per profile (default: `$CONAN_PROFILE`, or every profile from `conan profile list`) |
 | `--sources-url URL` | Artifactory base URL for the generic sources-repo upload (default: `http://localhost:8082/artifactory`) |
 | `--sources-user USER` | HTTP Basic Auth user for the sources-repo upload (default: `admin`) |
 | `--sources-pass PASS` | HTTP Basic Auth password for the sources-repo upload (default: `password`) |
@@ -249,7 +249,11 @@ build_type=Release
 ```
 
 Copy and edit this file to target a different compiler or architecture, then
-pass `--profile your-profile` to `deploy.py`.
+pass `--profile your-profile` to `deploy.py`. Pass `--profile` multiple times
+to deploy every package under each profile in turn; if `--profile` is omitted
+and `CONAN_PROFILE` is unset, `deploy.py` deploys every profile returned by
+`conan profile list` (i.e. every profile registered in the environment, not
+just the one under `profiles/`).
 
 ---
 
