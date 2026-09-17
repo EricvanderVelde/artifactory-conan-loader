@@ -51,6 +51,9 @@ scripts/
 vendor/sources/           # pre-fetched tarballs for git-only sources unreachable
                           # from some networks (e.g. gnu-config); fetch.py seeds
                           # bundle/sources/ from here so Phase 1.5 can skip them
+vendor/certs/             # files some recipes fetch directly in source() rather
+                          # than via conandata.yml (e.g. libcurl's cacert.pem);
+                          # deploy.py redirects the build to these via `-c`
 test_project/             # sample C++ project using protobuf
 Dockerfile                # Artifactory OSS container image
 docker-compose.yml        # Artifactory + PostgreSQL

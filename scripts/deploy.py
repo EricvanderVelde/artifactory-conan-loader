@@ -48,6 +48,28 @@ from provision import (
     conan_option_args, conan_package_id, conan_package_exists,
 )
 
+VENDOR_CERTS_DIR = Path(__file__).resolve().parent.parent / "vendor" / "certs"
+
+
+def _extra_conf_args(name):
+    """Extra `-c` conf overrides needed to build this recipe fully offline.
+
+    A handful of recipes fetch something directly in Python code during
+    source() rather than declaring it in conandata.yml, so fetch.py's
+    source discovery never sees it and it would otherwise reach out to the
+    network during this air-gapped build:
+
+    - libcurl always downloads a CA bundle (cacert.pem) from curl.se. The
+      recipe itself exposes `user.libcurl.cert:url`/`:sha256` for exactly
+      this kind of override; point it at the vendored copy via a file://
+      URL, which conan's own download() tool supports natively.
+    """
+    if name == "libcurl":
+        cacert = VENDOR_CERTS_DIR / "cacert-2025-11-04.pem"
+        if cacert.exists():
+            return ["-c", f"user.libcurl.cert:url=file://{cacert}"]
+    return []
+
 
 class Deployer:
     def __init__(self, args):
@@ -220,6 +242,7 @@ class Deployer:
             "--build", "missing",
             "--test-folder", "",
             *conan_option_args(name, options),
+            *_extra_conf_args(name),
         ]
         if options:
             print(f"  Options: {options}")
