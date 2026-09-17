@@ -48,6 +48,9 @@ scripts/
   provision.py            # shared utility library (not run directly)
   01_setup_artifactory.sh # one-time Artifactory setup
   config.sh               # shared Artifactory config
+vendor/sources/           # pre-fetched tarballs for git-only sources unreachable
+                          # from some networks (e.g. gnu-config); fetch.py seeds
+                          # bundle/sources/ from here so Phase 1.5 can skip them
 test_project/             # sample C++ project using protobuf
 Dockerfile                # Artifactory OSS container image
 docker-compose.yml        # Artifactory + PostgreSQL

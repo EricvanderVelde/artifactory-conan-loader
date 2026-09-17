@@ -317,6 +317,20 @@ def extract_raw_requires(conanfile_text, options=None):
             indent = len(line) - len(stripped)
             if indent >= req_indent:
                 continue
+            if stripped.startswith("else:") or stripped.startswith("else "):
+                # Our call sits in this else branch, so it runs when the
+                # paired if/elif condition(s) are *false* — but reliably
+                # negating an arbitrary condition string isn't something
+                # this heuristic scanner can do. Rather than (wrongly)
+                # reuse the if-branch's skip verdict as-is — which treats
+                # the call as gated by a condition that actually excludes
+                # it — treat the whole if/elif/else chain as unresolvable
+                # and keep climbing past it for an outer condition, without
+                # deciding skip based on it. Bundling an unneeded recipe is
+                # cheap; silently dropping a needed one breaks the offline
+                # build later.
+                req_indent = indent
+                continue
             is_if = stripped.startswith("if ")
             is_elif = stripped.startswith("elif ")
             if not is_if and not is_elif:

@@ -64,6 +64,24 @@ from provision import (
     load_packages_file,
 )
 
+VENDOR_SOURCES_DIR = Path(__file__).resolve().parent.parent / "vendor" / "sources"
+
+
+def _vendored_tarball(name, version):
+    """Path to a pre-fetched tarball checked into vendor/sources/, or None.
+
+    Some CCI recipes (e.g. gnu-config) only source from git, which requires
+    reaching the upstream git host from the connected machine in Phase 1.5 —
+    not always possible behind restrictive network policies. Checking a
+    matching tarball into vendor/sources/ (built once with the same
+    git-clone-and-archive approach as download_sources.py) lets fetch.py
+    seed bundle/sources/ directly, so that step's cache-hit check skips the
+    network entirely for that package.
+    """
+    path = VENDOR_SOURCES_DIR / f"{name}-{version}.tar.gz"
+    return path if path.exists() else None
+
+
 class Fetcher:
     def __init__(self, args):
         self.a = args
@@ -227,6 +245,14 @@ class Fetcher:
 
             git_refs = list(_iter_git_sources(sources[version]))
             if git_refs:
+                vendored = _vendored_tarball(name, version)
+                if vendored:
+                    sources_dir = self.output_dir / "sources"
+                    sources_dir.mkdir(parents=True, exist_ok=True)
+                    dest = sources_dir / vendored.name
+                    if not dest.exists():
+                        shutil.copyfile(vendored, dest)
+                    print(f"  {name}/{version}: using vendored source ({vendored}).")
                 for git_url, git_commit in git_refs:
                     entries.append({"type": "git", "url": git_url, "commit": git_commit})
             else:

@@ -39,10 +39,15 @@ packages:
     options:
       bzip2: false
   - ref: boost/1.90.0
+  - ref: boost/1.91.0
+  
+  
   # - ref: zlib/1.3.2
   # - ref: abseil/20260107.1
   # - ref: protobuf/6.33.5
-
+  - ref: opentelemetry-cpp/1.26.0
+    options:
+      with_otlp_grpc: true
   # ──────────────────────────────────────────────────────────────────────────
   # opentelemetry-cpp — choose the feature set that suits your deployment.
   # Uncomment the scenario you want (only one should be active at a time).
